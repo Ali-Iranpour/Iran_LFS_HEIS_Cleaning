@@ -1,0 +1,2894 @@
+---
+title: "Cleaning code for LFS and HEIS data from 1392 to 1401"
+author: "Ali Iranpour"
+date: "July 7, 2024"
+output:
+    rmarkdown::html_document:
+        theme: readable
+        highlight: kate
+        toc: true
+        toc_depth: 3
+        toc_float: true
+        df_print: paged
+        code_folding: hide
+---
+
+# Data Cleaning
+
+### Preliminaries
+
+We first set the working directory, and install and load the necessary packages.
+
+```{r setup, results='hide', warning=FALSE, message = FALSE}
+library(dplyr)
+library(data.table)
+library(knitr)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(stringr)
+library(tidyr)
+library(shiny)
+library(leaflet)
+library(mdbr)
+library(Hmisc)
+library(leaflet)
+library(tigris)
+library(sf)
+library(readxl)
+library(tidyverse)
+library(shiny)
+library(labelled)
+library(haven)
+library(writexl)
+library(psych)
+library(foreign)
+library(kableExtra)
+```
+
+### LFS Cleaning
+
+1.  This section of the code is dedicated to preparing and cleaning Labor Force Survey (LFS) data. The process includes setting the working directory, defining functions for renaming columns, destringing and replacing missing values, and applying these transformations across multiple datasets. Each file is processed to extract numerical identifiers, apply column renaming based on a predefined mapping, and select relevant columns. This script also includes a function to process all `.mdb` files within the specified directory, extracting and transforming the data, and then saving the final dataset into an R data file.
+
+```{r eval=FALSE}
+setwd("~/Desktop/TeIAS/14022/Methods/final/Data/LFS data")
+# Function to rename columns based on the provided list
+rename_columns <- function(data, old, new) {
+  if (old %in% names(data)) {
+    colnames(data)[colnames(data) == old] <- new
+  }
+  data
+}
+
+# Function to destring and handle empty spaces
+destring_and_replace_na <- function(data) {
+  data %>%
+    mutate(across(everything(), ~ str_trim(as.character(.)))) %>%
+    mutate(across(everything(), ~ na_if(., ""))) %>%
+    mutate(across(everything(), as.numeric))
+}
+
+# Define the function to process and rename columns in each data frame
+process_and_rename_columns <- function(data, file_name) {
+  LFS <- as.numeric(str_extract(file_name, "\\d+"))
+  
+  data <- data %>%
+    mutate(LFS = LFS) %>%
+    destring_and_replace_na()
+  
+  # Column renaming list
+  col_renames <- list(
+    "NobatAmargiri" = "Nobat_Amargiri",
+    "F2.D01" = "radif",
+    "F2.D03" = "Rel2Head",
+    "F2.D04" = "female",
+    "F2.D07" = "age",
+    "F2.D08" = "iranian",
+    "F2.D10" = "immigrant",
+    "F2.D11" = "lastplace",
+    "F2.D12" = "immigreason",
+    "F2.D13" = "lastostan",
+    "F2.D15" = "student",
+    "F2.D16" = "literacy",
+    "F2.D17" = "education",
+    "F2.D18" = ifelse(LFS > 1396, "isced2013", "isced1998"),
+    "F2.D19" = "married",
+    "F3.D01" = "employedwage",
+    "F3.D02" = "employedataree",
+    "F3.D03" = "employedataamily",
+    "F3.D05" = "internemplyed",
+    "F3.D06" = "absentjob",
+    "F3.D07" = "absencereason",
+    "F3.D08" = "secondjob",
+    "F3.D09" = "isco",
+    "F3.D10" = ifelse(LFS > 1391, "isicREV4", "isicREV3"),
+    "F3.D11" = "jobsituation",
+    "F3.D12" = "sizejob",
+    "F3.D13" = "jobhealthinsur",
+    "F3.D14SAL" = "tenureyear",
+    "F3.D14MAH" = "tenuremonth",
+    "F3.D15SAL" = "experienceyear",
+    "F3.D15MAH" = "experiencemonth",
+    "F3.D16SHASLIR" = "workdaysmianjob",
+    "F3.D16SHASLIS" = "workhoursmainjob",
+    "F3.D16SHHAMRO" = "workdaystotal",
+    "F3.D16SHHAMSA" = "workhourstotal",
+    "F3.D17" = "whylessthan44",
+    "F3.D24" = "lookingforotherjob",
+    "F3.D25" = "whylookingforotherjob",
+    "F3.D27ROZ" = "willingtoworkdays",
+    "F3.D27SAAT" = "willingtoworkhours",
+    "F3.D31" = "lookingunemployed",
+    "F3.D35SAL" = "howlonglooking_unemployed",
+    "F3.D36" = "lfpbefore",
+    "F3.D37SAL" = "unemployedexperienceyear",
+    "F3.D37MAH" = "unemployedexperiencemonth",
+    "F3.D38" = "unemplyedinsurance",
+    "F3.D39" = "worked_last_5years",
+    "F3.D40SAL" = "howlongaftar_lastwork",
+    "F3.D44" = "whyleft",
+    "ActivityStatus" = "lfp",
+    "IW.Yearly" = "weight",
+    "IW10.Yearly" = "weight"
+  )
+  
+  for (old_name in names(col_renames)) {
+    new_name <- col_renames[[old_name]]
+    data <- rename_columns(data, old_name, new_name)
+  }
+  
+  data <- data %>%
+    select(-starts_with("F2"), -starts_with("F3"))
+  
+  return(data)
+}
+
+# Main function to process all .mdb files
+process_all_mdb_files <- function() {
+  # Read .mdb files
+  mdb_files <- list.files(pattern = "LFS(139[2-9]|1400|1401)\\.mdb", full.names = FALSE)
+  
+  # Process each file and store the results in a list
+  all_data <- lapply(mdb_files, function(file) {
+    data <- mdb.get(file)
+    processed_data <- process_and_rename_columns(data, file)
+    return(processed_data)
+  })
+  
+  # Assign names to the list elements
+  names(all_data) <- str_extract(mdb_files, "LFS\\d+")
+  
+  return(all_data)
+}
+
+# Call the function to process all .mdb files
+all_data <- process_all_mdb_files()
+
+save(all_data, file = "/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/LFS data/all_data.RData")
+```
+
+2.  This segment focuses on further cleaning and transforming individual datasets after the initial preprocessing. It involves adjusting column values to ensure consistent data types across the board, like modifying gender and nationality identifiers to binary formats. Additionally, it cleans education data by categorizing educational levels and recalculating based on the dataset year. The script handles special cases such as padding identifiers for recent years and filtering the data based on age to focus on the working-age population. Finally, the transformed data is cleaned for various demographic and employment characteristics, ensuring that the dataset is primed for analysis, and then saved to a specified location.
+
+```{r eval=FALSE}
+clean_transform_data <- function(data, file_name) {
+  LFS <- as.numeric(str_extract(file_name, "\\d+"))
+  
+  if (LFS >= 1400) {
+    data <- data %>%
+      mutate(pkey = str_pad(pkey, 10, pad = "0"))
+  }
+
+  # Transformations and renaming
+  data <- data %>%
+    mutate(
+      female = ifelse(female == 1, 0, ifelse(female == 2, 1, female)),
+      male = ifelse(female == 0, 1, 0),
+      afghan = ifelse(iranian == 2, 1, ifelse(iranian %in% c(1, 3), 0, NA)),
+      iranian = ifelse(iranian %in% c(2, 3), 0, iranian),
+      immigrant = ifelse(immigrant == 2, 0, immigrant),
+      student = ifelse(student == 2, 0, student),
+      literacy = ifelse(literacy == 2, 0, literacy),
+      education = ifelse(literacy == 0, 0, education),
+      agesqrd = age^2,
+      marriedataemale = female * married,
+      ostan = substr(pkey, 3, 4),
+      urban = substr(pkey, 5, 5),
+      urban = ifelse(urban == 2, 0, urban),
+      LFS = LFS
+    )
+  
+  # Filter out rows based on age
+  data <- data %>%
+    filter(age >= 15 & age <= 65)
+  
+  # Education cleaning
+  if (LFS > 1396) {
+    data <- data %>%
+      mutate(
+        education = ifelse(education == 9, NA, education),
+        Primaryschool = ifelse(education == 1, 1, ifelse(is.na(education), NA, 0)),
+        Middleschool = ifelse(education == 2, 1, ifelse(is.na(education), NA, 0)),
+        Highschool = ifelse(education == 3, 1, ifelse(is.na(education), NA, 0)),
+        Diploma = ifelse(education == 4, 1, ifelse(is.na(education), NA, 0)),
+        Associate = ifelse(education == 5, 1, ifelse(is.na(education), NA, 0)),
+        Bachelor = ifelse(education == 6, 1, ifelse(is.na(education), NA, 0)),
+        Master = ifelse(education == 7, 1, ifelse(is.na(education), NA, 0)),
+        Phd = ifelse(education == 8, 1, ifelse(is.na(education), NA, 0)),
+        Educ_years = case_when(
+          education == 1 ~ 5,
+          education == 2 ~ 8,
+          education == 3 ~ 11,
+          education == 4 ~ 12,
+          education == 5 ~ 14,
+          education == 6 ~ 16,
+          education == 7 ~ 18,
+          education == 8 ~ 23,
+          education == 0 ~ 0
+        ),
+        Education = education
+      )
+  } else {
+    data <- data %>%
+      mutate(
+        education = ifelse(education == 71, NA, education),
+        Primaryschool = ifelse(education == 11, 1, ifelse(is.na(education), NA, 0)),
+        Middleschool = ifelse(education == 21, 1, ifelse(is.na(education), NA, 0)),
+        Highschool = ifelse(education == 31, 1, ifelse(is.na(education), NA, 0)),
+        Diploma = ifelse(education == 41, 1, ifelse(is.na(education), NA, 0)),
+        Associate = ifelse(education == 51, 1, ifelse(is.na(education), NA, 0)),
+        Bachelor = ifelse(education == 52, 1, ifelse(is.na(education), NA, 0)),
+        Master = ifelse(education == 53, 1, ifelse(is.na(education), NA, 0)),
+        Phd = ifelse(education == 61, 1, ifelse(is.na(education), NA, 0)),
+        Educ_years = case_when(
+          education == 11 ~ 5,
+          education == 21 ~ 8,
+          education == 31 ~ 11,
+          education == 41 ~ 12,
+          education == 51 ~ 14,
+          education == 52 ~ 16,
+          education == 53 ~ 18,
+          education == 61 ~ 23,
+          education == 0 ~ 0
+        ),
+        Education = education
+      )
+  }
+  
+  # Cleaning married status
+  data <- data %>%
+    mutate(
+      widow = ifelse(married %in% c(2, 3), 1, ifelse(married %in% c(1, 4), 0, NA)),
+      married = ifelse(married %in% c(2, 3, 4), 0, married),
+      Occupation = ifelse(str_trim(isco) != "", substr(str_trim(isco), 1, 1), NA),
+      Occupation2 = ifelse(str_trim(isco) != "", substr(str_trim(isco), 1, 3), NA))
+  
+  return(data)
+}
+
+# Clean and transform each data frame in all_data
+all_data <- lapply(names(all_data), function(name) {
+  clean_transform_data(all_data[[name]], name)
+})
+
+# Rename the list elements to correct dataset names
+names(all_data) <- paste0("LFS", 1392:1401)
+
+save(all_data, file = "/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/LFS data/LFS_cleaned.RData")
+```
+
+### HEIS Cleaning
+
+1.  This section of the code handles the loading and initial processing of Household Expenditure and Income Survey (HIES) data from .mdb files for various years. The script sets the working directory to the location where the data files are stored and reads the files corresponding to the specified pattern for the years 1392 to 1401. Each file is loaded into R, and the data is temporarily stored in a list. Additionally, specific datasets within each year's data that are not required for further analysis are identified by their unique identifiers and removed from the dataset. The clean datasets are then saved into a single R data file for subsequent use. This step ensures that only relevant and necessary data is retained, optimizing both storage space and processing time in future analyses.
+
+```{r eval=FALSE}
+process_all_mdb_files <- function() {
+  # Set the directory path
+  directory <- "/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data"
+  setwd(directory)
+  
+  # Read .mdb files matching the pattern
+  mdb_files <- list.files(pattern = "HIES(139[2-9]|1400|1401)\\.mdb",
+                          full.names = FALSE)
+  
+  # Process each file and store the results in a list
+  all_data <- lapply(mdb_files, function(file) {
+    data <- mdb.get(file)
+    return(data)
+  })
+  
+  names(all_data) <- str_extract(mdb_files, "HIES\\d+")
+  
+  return(all_data)
+}
+
+result <- process_all_mdb_files()
+
+result[["HIES1401"]][["R1401P3S10"]] <- NULL
+result[["HIES1401"]][["U1401P3S10"]] <- NULL
+
+result[["HIES1400"]][["R1400P3S10"]] <- NULL
+result[["HIES1401"]][["U1401P3S10"]] <- NULL
+
+result[["HIES1399"]][["R99P3S10"]] <- NULL
+result[["HIES1399"]][["U99P3S10"]] <- NULL
+
+result[["HIES1398"]][["R98P3S10"]] <- NULL
+result[["HIES1398"]][["U98P3S10"]] <- NULL
+
+result[["HIES1397"]][["R97P3S10"]] <- NULL
+result[["HIES1397"]][["U98P3S10"]] <- NULL
+
+result[["HIES1396"]][["R96P3S10"]] <- NULL
+result[["HIES1396"]][["RU96P3S10"]] <- NULL
+
+result[["HIES1395"]][["R95P3S10"]] <- NULL
+result[["HIES1395"]][["U95P3S10"]] <- NULL
+
+result[["HIES1394"]][["R94P3S10"]] <- NULL
+result[["HIES1394"]][["U94P3S10"]] <- NULL
+
+result[["HIES1393"]][["R93P3S10"]] <- NULL
+result[["HIES1393"]][["U93P3S10"]] <- NULL
+
+result[["HIES1392"]][["R92P3S10"]] <- NULL
+result[["HIES1392"]][["U92P3S10"]] <- NULL
+
+
+save(result, file = "/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/result.Rdata")
+```
+
+```{r include=FALSE}
+load("/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/result.Rdata")
+```
+
+2.  This code segment is designed to identify and pair rural and urban data frames based on their names, binds them together, and assigns them into a new list. This newly combined list is then cleansed of any extraneous objects in the environment, keeping only the relevant year-specific data frames. This process ensures that the data for each year is cleanly separated and easily accessible for further analysis.
+
+    The code intends to repeat these steps for each year's dataset, thereby standardizing the format across multiple years and facilitating comparative analysis across different demographic segments and time periods.
+
+```{r}
+#HEIS 1401
+invisible(lapply(names(result), function(x) assign(x,result[[x]],envir=.GlobalEnv)))
+# Store the original names
+original_names <- names(HIES1401)
+
+# Iterate over the indices of the dataframes in HIES1401 and modify them
+HIES1401 <- lapply(seq_along(HIES1401), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1401[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1401[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1401[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1401[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1401) <- original_names
+
+invisible(lapply(names(HIES1401), function(x) assign(x, HIES1401[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+HIES1401 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1401[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1401))
+names(HIES1401) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+
+
+
+
+#HEIS 1400
+# Store the original names
+original_names <- names(HIES1400)
+
+# Iterate over the indices of the dataframes in HIES1400 and modify them
+HIES1400 <- lapply(seq_along(HIES1400), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1400[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1400[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1400[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1400[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1400) <- original_names
+
+invisible(lapply(names(HIES1400), function(x) assign(x, HIES1400[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1400 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1400[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1400))
+names(HIES1400) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+# HEIS1399
+
+original_names <- names(HIES1399)
+
+# Iterate over the indices of the dataframes in HIES1399 and modify them
+HIES1399 <- lapply(seq_along(HIES1399), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1399[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1399[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1399[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1399[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1399) <- original_names
+
+invisible(lapply(names(HIES1399), function(x) assign(x, HIES1399[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1399 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1399[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1399))
+names(HIES1399) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+# HIES1398
+original_names <- names(HIES1398)
+
+# Iterate over the indices of the dataframes in HIES1398 and modify them
+HIES1398 <- lapply(seq_along(HIES1398), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1398[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1398[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1398[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1398[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1398) <- original_names
+
+invisible(lapply(names(HIES1398), function(x) assign(x, HIES1398[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1398 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1398[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1398))
+names(HIES1398) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+# HIES1397
+
+original_names <- names(HIES1397)
+
+# Iterate over the indices of the dataframes in HIES1397 and modify them
+HIES1397 <- lapply(seq_along(HIES1397), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1397[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1397[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1397[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1397[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1397) <- original_names
+
+invisible(lapply(names(HIES1397), function(x) assign(x, HIES1397[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1397 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1397[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1397))
+names(HIES1397) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+#HIES1396
+original_names <- names(HIES1396)
+
+# Iterate over the indices of the dataframes in HIES1396 and modify them
+HIES1396 <- lapply(seq_along(HIES1396), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1396[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1396[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1396[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1396[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1396) <- original_names
+
+invisible(lapply(names(HIES1396), function(x) assign(x, HIES1396[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1396 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1396[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1396))
+names(HIES1396) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+#HIES1395
+original_names <- names(HIES1395)
+
+# Iterate over the indices of the dataframes in HIES1395 and modify them
+HIES1395 <- lapply(seq_along(HIES1395), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1395[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1395[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1395[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1395[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1395) <- original_names
+
+invisible(lapply(names(HIES1395), function(x) assign(x, HIES1395[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1395 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1395[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1395))
+names(HIES1395) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+#HIES1394
+
+original_names <- names(HIES1394)
+
+# Iterate over the indices of the dataframes in HIES1394 and modify them
+HIES1394 <- lapply(seq_along(HIES1394), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1394[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1394[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1394[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1394[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1394) <- original_names
+
+invisible(lapply(names(HIES1394), function(x) assign(x, HIES1394[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1394 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1394[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1394))
+names(HIES1394) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+
+#HIES1393
+original_names <- names(HIES1393)
+
+# Iterate over the indices of the dataframes in HIES1393 and modify them
+HIES1393 <- lapply(seq_along(HIES1393), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1393[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1393[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1393[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1393[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1393) <- original_names
+
+invisible(lapply(names(HIES1393), function(x) assign(x, HIES1393[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1393 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1393[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1393))
+names(HIES1393) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+# HIES1392
+
+original_names <- names(HIES1392)
+
+# Iterate over the indices of the dataframes in HIES1392 and modify them
+HIES1392 <- lapply(seq_along(HIES1392), function(idx) {
+    name <- original_names[idx]
+    first_char <- substr(name, 1, 1)
+    
+    # Check if the dataframe is not empty
+    if (nrow(HIES1392[[idx]]) > 0) {
+        if (first_char == "R" || first_char == "U") {
+            HIES1392[[idx]]$RU <- first_char
+        }
+    } else {
+        # If the dataframe is empty, create a new one-row dataframe with NA values
+        HIES1392[[idx]] <- data.frame(RU = NA)
+    }
+    
+    return(HIES1392[[idx]])
+})
+
+# Reassign the original names to the modified dataframes
+names(HIES1392) <- original_names
+
+invisible(lapply(names(HIES1392), function(x) assign(x, HIES1392[[x]], envir = .GlobalEnv)))
+
+all_objects <- ls()
+
+# Filter names starting with "R" or "U"
+df_names <- grep("^[RU]", all_objects, value = TRUE)
+
+
+HIES1392 <- list()  # List to store combined data frames
+
+for (name in df_names) {
+  # Create an alternative name by switching the first character
+  if (substr(name, 1, 1) == "R") {
+    alt_name <- paste0("U", substr(name, 2, nchar(name)))
+    urban_rural <- "R"
+  } else if (substr(name, 1, 1) == "U") {
+    alt_name <- paste0("R", substr(name, 2, nchar(name)))
+    urban_rural <- "U"
+  } else {
+    next  # Skip if the name does not start with R or U
+  }
+
+  # Check if the alternative name exists in the list of data frame names
+  if (alt_name %in% df_names) {
+    # Retrieve and add the urban/rural column to both data frames
+    df1 <- get(name)
+    df1$urban_rural <- urban_rural
+
+    df2 <- get(alt_name)
+    df2$urban_rural <- ifelse(urban_rural == "R", "U", "R")  # Opposite of df1
+
+    # Combine the two data frames
+    combined_df <- rbind(df1, df2)
+    HIES1392[[substr(name, 2, nchar(name))]] <- combined_df
+  }
+}
+
+character_to_add <- "RU"
+
+# Modify the names of the lists
+new_list_names <- paste0(character_to_add, names(HIES1392))
+names(HIES1392) <- new_list_names
+
+# remove everything except needed file 
+objects <- ls()
+
+# Specify the object you want to keep
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+```
+
+3.  This code segment performs the final, detailed cleaning and transformation of the Household Expenditure and Income Survey (HEIS) data for the year 1401, although the methodology is applicable to other years as well. The script begins by loading all necessary datasets into the global environment and sets up a series of data transformations that include:
+
+    This thorough cleaning and preparation ensure the data is ready for detailed statistical analysis or reporting, providing a robust foundation for understanding economic conditions and trends within the survey population.
+
+```{r warning=FALSE}
+# HEIS 1401
+invisible(lapply(names(HIES1401), function(x) assign(x, HIES1401[[x]], envir = .GlobalEnv)))
+
+# Cleaning part
+RU1401data <- RU1401Data %>%
+  mutate(HEIS = 1401) %>%
+  select(Address, weight, HEIS, RU)
+
+merged_data <- merge(RU1401data, RU1401P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU1401P4S01 data
+merged_data <- merge(merged_data, RU1401P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU1401P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU1401P4S02 <- RU1401P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU1401P4S03 <- RU1401P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU1401P4S04 <- RU1401P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1401final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU1401P4S0", i))
+  HEIS1401final <- merge(HEIS1401final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1401final <- HEIS1401final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1401final <- HEIS1401final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1401final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1401final <- left_join(HEIS1401final, size_data, by = "Address")
+
+kid_data <- HEIS1401final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1401final <- left_join(HEIS1401final, kid_data, by = "Address")
+HEIS1401final <- HEIS1401final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1401final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1401final <- left_join(HEIS1401final, kid_data, by = "Address")
+HEIS1401final <- HEIS1401final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1401final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1401final <- left_join(HEIS1401final, kid_data, by = "Address")
+HEIS1401final <- HEIS1401final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1401final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1401final <- left_join(HEIS1401final, kid_data, by = "Address")
+HEIS1401final <- HEIS1401final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1401final <- HEIS1401final %>%
+  mutate(education = as.numeric(education)) %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 9, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 1, Middleschool = 2, Highschool = 3, Diploma = 4,
+                       Associate = 5, Bachelor = 6, Master = 7, Phd = 8)
+for (name in names(education_mapping)) {
+  HEIS1401final <- HEIS1401final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1401final <- HEIS1401final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 1 ~ 5,
+    Education == 2 ~ 8,
+    Education == 3 ~ 11,
+    Education == 4 ~ 12,
+    Education == 5 ~ 14,
+    Education == 6 ~ 16,
+    Education == 7 ~ 18,
+    Education == 8 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1401final <- HEIS1401final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1401final <- HEIS1401final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>% 
+  rename(urban = RU) %>% 
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban == "U", 1, ifelse(urban== "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401", "HEIS1401final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+# HEIS 1400
+invisible(lapply(names(HIES1400), function(x) assign(x, HIES1400[[x]], envir = .GlobalEnv)))
+
+# Cleaning part
+RU1400data <- RU1400Data %>%
+  mutate(HEIS = 1400) %>%
+  select(Address, weight, HEIS, RU)
+
+merged_data <- merge(RU1400data, RU1400P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU1400P4S01 data
+merged_data <- merge(merged_data, RU1400P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU1400P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU1400P4S02 <- RU1400P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU1400P4S03 <- RU1400P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU1400P4S04 <- RU1400P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1400final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU1400P4S0", i))
+  HEIS1400final <- merge(HEIS1400final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1400final <- HEIS1400final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1400final <- HEIS1400final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1400final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1400final <- left_join(HEIS1400final, size_data, by = "Address")
+
+kid_data <- HEIS1400final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1400final <- left_join(HEIS1400final, kid_data, by = "Address")
+HEIS1400final <- HEIS1400final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1400final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1400final <- left_join(HEIS1400final, kid_data, by = "Address")
+HEIS1400final <- HEIS1400final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1400final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1400final <- left_join(HEIS1400final, kid_data, by = "Address")
+HEIS1400final <- HEIS1400final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1400final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1400final <- left_join(HEIS1400final, kid_data, by = "Address")
+HEIS1400final <- HEIS1400final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1400final <- HEIS1400final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 9, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 1, Middleschool = 2, Highschool = 3, Diploma = 4,
+                       Associate = 5, Bachelor = 6, Master = 7, Phd = 8)
+for (name in names(education_mapping)) {
+  HEIS1400final <- HEIS1400final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1400final <- HEIS1400final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 1 ~ 5,
+    Education == 2 ~ 8,
+    Education == 3 ~ 11,
+    Education == 4 ~ 12,
+    Education == 5 ~ 14,
+    Education == 6 ~ 16,
+    Education == 7 ~ 18,
+    Education == 8 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1400final <- HEIS1400final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1400final <- HEIS1400final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>% 
+  rename(urban = RU) %>% 
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban == "U", 1, ifelse(urban== "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+# Now `HEIS1400final` contains the cleaned data.
+
+
+
+
+
+# HEIS 1399
+invisible(lapply(names(HIES1399), function(x) assign(x, HIES1399[[x]], envir = .GlobalEnv)))
+
+# Cleaning part
+RU99Data <- RU99Data %>%
+  mutate(HEIS = 1399) %>%
+  select(Address, weight, HEIS, RU)
+
+merged_data <- merge(RU99Data, RU99P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU99P4S01 data
+merged_data <- merge(merged_data, RU99P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU99P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU99P4S02 <- RU99P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU99P4S03 <- RU99P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU99P4S04 <- RU99P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1399final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU99P4S0", i))
+  HEIS1399final <- merge(HEIS1399final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1399final <- HEIS1399final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1399final <- HEIS1399final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1399final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1399final <- left_join(HEIS1399final, size_data, by = "Address")
+
+kid_data <- HEIS1399final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1399final <- left_join(HEIS1399final, kid_data, by = "Address")
+HEIS1399final <- HEIS1399final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1399final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1399final <- left_join(HEIS1399final, kid_data, by = "Address")
+HEIS1399final <- HEIS1399final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1399final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1399final <- left_join(HEIS1399final, kid_data, by = "Address")
+HEIS1399final <- HEIS1399final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1399final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1399final <- left_join(HEIS1399final, kid_data, by = "Address")
+HEIS1399final <- HEIS1399final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1399final <- HEIS1399final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 9, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 1, Middleschool = 2, Highschool = 3, Diploma = 4,
+                       Associate = 5, Bachelor = 6, Master = 7, Phd = 8)
+for (name in names(education_mapping)) {
+  HEIS1399final <- HEIS1399final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1399final <- HEIS1399final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 1 ~ 5,
+    Education == 2 ~ 8,
+    Education == 3 ~ 11,
+    Education == 4 ~ 12,
+    Education == 5 ~ 14,
+    Education == 6 ~ 16,
+    Education == 7 ~ 18,
+    Education == 8 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1399final <- HEIS1399final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1399final <- HEIS1399final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+#HEIS 1398
+invisible(lapply(names(HIES1398), function(x) assign(x, HIES1398[[x]], envir = .GlobalEnv)))
+
+# Cleaning part
+RU98Data <- RU98Data %>%
+  mutate(HEIS = 1398) %>%
+  select(Address, weight, HEIS, RU)
+
+merged_data <- merge(RU98Data, RU98P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU98P4S01 data
+merged_data <- merge(merged_data, RU98P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU98P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU98P4S02 <- RU98P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU98P4S03 <- RU98P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU98P4S04 <- RU98P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1398final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU98P4S0", i))
+  HEIS1398final <- merge(HEIS1398final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1398final <- HEIS1398final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1398final <- HEIS1398final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1398final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1398final <- left_join(HEIS1398final, size_data, by = "Address")
+
+kid_data <- HEIS1398final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1398final <- left_join(HEIS1398final, kid_data, by = "Address")
+HEIS1398final <- HEIS1398final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1398final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1398final <- left_join(HEIS1398final, kid_data, by = "Address")
+HEIS1398final <- HEIS1398final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1398final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1398final <- left_join(HEIS1398final, kid_data, by = "Address")
+HEIS1398final <- HEIS1398final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1398final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1398final <- left_join(HEIS1398final, kid_data, by = "Address")
+HEIS1398final <- HEIS1398final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1398final <- HEIS1398final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 9, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 1, Middleschool = 2, Highschool = 3, Diploma = 4,
+                       Associate = 5, Bachelor = 6, Master = 7, Phd = 8)
+for (name in names(education_mapping)) {
+  HEIS1398final <- HEIS1398final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1398final <- HEIS1398final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 1 ~ 5,
+    Education == 2 ~ 8,
+    Education == 3 ~ 11,
+    Education == 4 ~ 12,
+    Education == 5 ~ 14,
+    Education == 6 ~ 16,
+    Education == 7 ~ 18,
+    Education == 8 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1398final <- HEIS1398final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1398final <- HEIS1398final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+#HEIS 1397
+invisible(lapply(names(HIES1397), function(x) assign(x, HIES1397[[x]], envir = .GlobalEnv)))
+
+# Cleaning part
+RU97Data <- RU97Data %>%
+  mutate(HEIS = 1397) %>%
+  select(Address, weight, HEIS, RU)
+
+merged_data <- merge(RU97Data, RU97P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU97P4S01 data
+merged_data <- merge(merged_data, RU97P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU97P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU97P4S02 <- RU97P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU97P4S03 <- RU97P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU97P4S04 <- RU97P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1397final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU97P4S0", i))
+  HEIS1397final <- merge(HEIS1397final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1397final <- HEIS1397final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1397final <- HEIS1397final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1397final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1397final <- left_join(HEIS1397final, size_data, by = "Address")
+
+kid_data <- HEIS1397final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1397final <- left_join(HEIS1397final, kid_data, by = "Address")
+HEIS1397final <- HEIS1397final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1397final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1397final <- left_join(HEIS1397final, kid_data, by = "Address")
+HEIS1397final <- HEIS1397final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1397final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1397final <- left_join(HEIS1397final, kid_data, by = "Address")
+HEIS1397final <- HEIS1397final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1397final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1397final <- left_join(HEIS1397final, kid_data, by = "Address")
+HEIS1397final <- HEIS1397final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1397final <- HEIS1397final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 9, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 1, Middleschool = 2, Highschool = 3, Diploma = 4,
+                       Associate = 5, Bachelor = 6, Master = 7, Phd = 8)
+for (name in names(education_mapping)) {
+  HEIS1397final <- HEIS1397final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1397final <- HEIS1397final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 1 ~ 5,
+    Education == 2 ~ 8,
+    Education == 3 ~ 11,
+    Education == 4 ~ 12,
+    Education == 5 ~ 14,
+    Education == 6 ~ 16,
+    Education == 7 ~ 18,
+    Education == 8 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1397final <- HEIS1397final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1397final <- HEIS1397final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+#HEIS 1396
+invisible(lapply(names(HIES1396), function(x) assign(x, HIES1396[[x]], envir = .GlobalEnv)))
+
+
+RU96Data <- RU96Data %>%
+  mutate(HEIS = 1396) %>%
+  select(Address, weight, HEIS, , RU)
+
+merged_data <- merge(RU96Data, RU96P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU96P4S01 data
+merged_data <- merge(merged_data, RU96P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU96P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU96P4S02 <- RU96P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU96P4S03 <- RU96P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU96P4S04 <- RU96P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1396final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU96P4S0", i))
+  HEIS1396final <- merge(HEIS1396final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1396final <- HEIS1396final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1396final <- HEIS1396final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1396final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1396final <- left_join(HEIS1396final, size_data, by = "Address")
+
+kid_data <- HEIS1396final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1396final <- left_join(HEIS1396final, kid_data, by = "Address")
+HEIS1396final <- HEIS1396final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1396final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1396final <- left_join(HEIS1396final, kid_data, by = "Address")
+HEIS1396final <- HEIS1396final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1396final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1396final <- left_join(HEIS1396final, kid_data, by = "Address")
+HEIS1396final <- HEIS1396final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1396final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1396final <- left_join(HEIS1396final, kid_data, by = "Address")
+HEIS1396final <- HEIS1396final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1396final <- HEIS1396final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 71, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 11, Middleschool = 21, Highschool = 31, Diploma = 41,
+                       Associate = 51, Bachelor = 52, Master = 53, Phd = 61)
+for (name in names(education_mapping)) {
+  HEIS1396final <- HEIS1396final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1396final <- HEIS1396final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 11 ~ 5,
+    Education == 21 ~ 8,
+    Education == 31 ~ 11,
+    Education == 41 ~ 12,
+    Education == 51 ~ 14,
+    Education == 52 ~ 16,
+    Education == 53 ~ 18,
+    Education == 61 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1396final <- HEIS1396final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1396final <- HEIS1396final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+
+# HEIS 1395
+
+invisible(lapply(names(HIES1395), function(x) assign(x, HIES1395[[x]], envir = .GlobalEnv)))
+
+library(readstata13)
+weights95 <- read.dta13("/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/attachments/weights95.dta")
+
+
+# Cleaning part
+RU95Data <- RU95Data %>%
+  mutate(HEIS = 1395) %>%
+  select(Address, HEIS, RU)
+
+weights95 <- weights95 %>%
+  rename(Address = HHID, weight = Weight) %>%
+  select(Address, weight) %>%
+  mutate(Address = format(as.numeric(Address), scientific = FALSE))
+
+RU95Data <- merge(RU95Data, weights95, by = "Address") %>%
+  filter(!is.na(weight))
+
+# Cleaning part
+merged_data <- merge(RU95Data, RU95P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU95P4S01 data
+merged_data <- merge(merged_data, RU95P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU95P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU95P4S02 <- RU95P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU95P4S03 <- RU95P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU95P4S04 <- RU95P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1395final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU95P4S0", i))
+  HEIS1395final <- merge(HEIS1395final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1395final <- HEIS1395final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1395final <- HEIS1395final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1395final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1395final <- left_join(HEIS1395final, size_data, by = "Address")
+
+kid_data <- HEIS1395final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1395final <- left_join(HEIS1395final, kid_data, by = "Address")
+HEIS1395final <- HEIS1395final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1395final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1395final <- left_join(HEIS1395final, kid_data, by = "Address")
+HEIS1395final <- HEIS1395final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1395final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1395final <- left_join(HEIS1395final, kid_data, by = "Address")
+HEIS1395final <- HEIS1395final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1395final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1395final <- left_join(HEIS1395final, kid_data, by = "Address")
+HEIS1395final <- HEIS1395final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1395final <- HEIS1395final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 71, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 11, Middleschool = 21, Highschool = 31, Diploma = 41,
+                       Associate = 51, Bachelor = 52, Master = 53, Phd = 61)
+for (name in names(education_mapping)) {
+  HEIS1395final <- HEIS1395final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1395final <- HEIS1395final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 11 ~ 5,
+    Education == 21 ~ 8,
+    Education == 31 ~ 11,
+    Education == 41 ~ 12,
+    Education == 51 ~ 14,
+    Education == 52 ~ 16,
+    Education == 53 ~ 18,
+    Education == 61 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1395final <- HEIS1395final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1395final <- HEIS1395final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+# The final cleaned data for year 
+
+
+
+
+# HEIS1394
+
+invisible(lapply(names(HIES1394), function(x) assign(x, HIES1394[[x]], envir = .GlobalEnv)))
+
+library(readstata13)
+weights94 <- read.dta13("/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/attachments/weights94.dta")
+
+
+# Cleaning part
+RU94Data <- RU94Data %>%
+  mutate(HEIS = 1394) %>%
+  select(Address, HEIS, RU)
+
+weights94 <- weights94 %>%
+  rename(Address = HHID, weight = Weight) %>%
+  select(Address, weight) %>%
+  mutate(Address = format(as.numeric(Address), scientific = FALSE))
+
+RU94Data <- merge(RU94Data, weights94, by = "Address") %>%
+  filter(!is.na(weight))
+
+# Cleaning part
+merged_data <- merge(RU94Data, RU94P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU94P4S01 data
+merged_data <- merge(merged_data, RU94P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU94P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU94P4S02 <- RU94P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU94P4S03 <- RU94P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU94P4S04 <- RU94P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1394final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU94P4S0", i))
+  HEIS1394final <- merge(HEIS1394final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1394final <- HEIS1394final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1394final <- HEIS1394final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1394final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1394final <- left_join(HEIS1394final, size_data, by = "Address")
+
+kid_data <- HEIS1394final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1394final <- left_join(HEIS1394final, kid_data, by = "Address")
+HEIS1394final <- HEIS1394final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1394final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1394final <- left_join(HEIS1394final, kid_data, by = "Address")
+HEIS1394final <- HEIS1394final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1394final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1394final <- left_join(HEIS1394final, kid_data, by = "Address")
+HEIS1394final <- HEIS1394final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1394final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1394final <- left_join(HEIS1394final, kid_data, by = "Address")
+HEIS1394final <- HEIS1394final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1394final <- HEIS1394final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 71, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 11, Middleschool = 21, Highschool = 31, Diploma = 41,
+                       Associate = 51, Bachelor = 52, Master = 53, Phd = 61)
+for (name in names(education_mapping)) {
+  HEIS1394final <- HEIS1394final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1394final <- HEIS1394final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 11 ~ 5,
+    Education == 21 ~ 8,
+    Education == 31 ~ 11,
+    Education == 41 ~ 12,
+    Education == 51 ~ 14,
+    Education == 52 ~ 16,
+    Education == 53 ~ 18,
+    Education == 61 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1394final <- HEIS1394final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1394final <- HEIS1394final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+
+#HEIS1393
+invisible(lapply(names(HIES1393), function(x) assign(x, HIES1393[[x]], envir = .GlobalEnv)))
+
+library(readstata13)
+weights93 <- read.dta13("/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/attachments/weights93.dta")
+
+
+# Cleaning part
+RU93Data <- RU93Data %>%
+  mutate(HEIS = 1393) %>%
+  select(Address, HEIS, RU)
+
+weights93 <- weights93 %>%
+  rename(Address = HHID, weight = Weight) %>%
+  select(Address, weight) %>%
+  mutate(Address = format(as.numeric(Address), scientific = FALSE))
+
+RU93Data <- merge(RU93Data, weights93, by = "Address") %>%
+  filter(!is.na(weight))
+
+# Cleaning part
+merged_data <- merge(RU93Data, RU93P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+# Merging RU93P4S01 data
+merged_data <- merge(merged_data, RU93P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU93P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU93P4S02 <- RU93P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU93P4S03 <- RU93P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU93P4S04 <- RU93P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1393final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU93P4S0", i))
+  HEIS1393final <- merge(HEIS1393final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1393final <- HEIS1393final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1393final <- HEIS1393final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1393final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1393final <- left_join(HEIS1393final, size_data, by = "Address")
+
+kid_data <- HEIS1393final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1393final <- left_join(HEIS1393final, kid_data, by = "Address")
+HEIS1393final <- HEIS1393final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1393final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1393final <- left_join(HEIS1393final, kid_data, by = "Address")
+HEIS1393final <- HEIS1393final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1393final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1393final <- left_join(HEIS1393final, kid_data, by = "Address")
+HEIS1393final <- HEIS1393final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1393final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1393final <- left_join(HEIS1393final, kid_data, by = "Address")
+HEIS1393final <- HEIS1393final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1393final <- HEIS1393final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         education = ifelse(education == 71, NA, education))
+
+# Education cleaning
+education_mapping <- c(Primary = 11, Middleschool = 21, Highschool = 31, Diploma = 41,
+                       Associate = 51, Bachelor = 52, Master = 53, Phd = 61)
+for (name in names(education_mapping)) {
+  HEIS1393final <- HEIS1393final %>%
+    mutate(!!name := ifelse(education == education_mapping[[name]], 1, 0),
+           !!name := ifelse(is.na(education), NA, !!sym(name)))
+}
+
+HEIS1393final <- HEIS1393final %>%
+  rename(Education = education) %>%
+  mutate(Educ_years = case_when(
+    Education == 0 ~ 0,
+    Education == 11 ~ 5,
+    Education == 21 ~ 8,
+    Education == 31 ~ 11,
+    Education == 41 ~ 12,
+    Education == 51 ~ 14,
+    Education == 52 ~ 16,
+    Education == 53 ~ 18,
+    Education == 61 ~ 23,
+    TRUE ~ NA_real_
+  ))
+
+# Cleaning married
+HEIS1393final <- HEIS1393final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0),
+         student = ifelse(student == 2, 0, student))
+
+# Cleaning age
+HEIS1393final <- HEIS1393final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c("HIES1392", "HIES1393", "HIES1394", "HIES1395", "HIES1396", 
+                  "HIES1397", "HIES1398", "HIES1399", "HIES1400", "HIES1401",
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+
+
+
+
+# HEIS 1392
+invisible(lapply(names(HIES1392), function(x) assign(x, HIES1392[[x]], envir = .GlobalEnv)))
+
+
+weights92 <- read.dta13("/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/attachments/weights92.dta")
+
+# Cleaning part
+RU92Data <- RU92Data %>%
+  mutate(HEIS = 1392) %>%
+  select(Address, HEIS, RU)
+
+weights92 <- weights92 %>%
+  rename(Address = HHID, weight = Weight) %>%
+  select(Address, weight) %>%
+  mutate(Address = format(as.numeric(Address), scientific = FALSE))
+
+RU92Data <- merge(RU92Data, weights92, by = "Address") %>%
+  filter(!is.na(weight))
+
+# Cleaning part
+merged_data <- merge(RU92Data, RU92P1, by = "Address")
+
+merged_data <- merged_data %>%
+  mutate(ostan = substr(Address, 2, 3)) %>%
+  rename(Rel2Head = DYCOL03, female = DYCOL04, age = DYCOL05, literacy = DYCOL06, student = DYCOL07, education = DYCOL08,
+         lfp = DYCOL09, married = DYCOL10)
+
+edu_codes <- read_excel("/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/attachments/MetaDatarev0.xlsx", sheet = "EduCodes-B")
+
+edu_codes <- edu_codes %>%
+  rename(education = Code, Educ_years = yoe)
+
+# Replace values in the education column
+edu_codes <- edu_codes %>%
+  mutate(education = case_when(
+    education == "1" ~ "001",
+    education == "2" ~ "002",
+    TRUE ~ education
+  )) %>% 
+  select(education, Educ_years)
+
+  
+# Merging EduCodesB data
+merged_data <- merge(merged_data, edu_codes, by ="education", all.x = TRUE)
+
+# Merging RU92P4S1 data
+merged_data <- merge(merged_data, RU92P4S01, by = c("Address", "DYCOL01"))
+
+# Cleaning RU92P4S01
+merged_data <- merged_data %>%
+  rename(radif = DYCOL01, shaghel = DYCOL02, jobcode = DYCOL03, jobactivity = DYCOL04, public = DYCOL05, workhours = DYCOL06,
+         workdays = DYCOL07, monthMostwage = DYCOL10, yearMostwage = DYCOL11, monthGHMostwage = DYCOL12, yearGHMostwage = DYCOL13,
+         monthwage = DYCOL14, yeariwage = DYCOL15) %>%
+  select(-DYCOL08, -DYCOL09)
+
+# Clearing other incomes
+RU92P4S02 <- RU92P4S02 %>%
+  rename(radif = DYCOL01, freeworkincome = DYCOL15) %>%
+  select(Address, radif, freeworkincome)
+
+RU92P4S03 <- RU92P4S03 %>%
+  mutate(across(DYCOL03:DYCOL08, as.numeric)) %>%
+  mutate(across(everything(), ~ replace(., is.na(.), 0))) %>%
+  mutate(miscellaneousincome = DYCOL03 + DYCOL04 + DYCOL05 + DYCOL06 + DYCOL07 + DYCOL08) %>%
+  rename(radif = DYCOL01) %>%
+  select(Address, radif, miscellaneousincome)
+
+RU92P4S04 <- RU92P4S04 %>%
+  rename(radif = Dycol01, subsidincome = Dycol05) %>%
+  select(Address, radif, subsidincome)
+
+# Merging all
+HEIS1392final <- merged_data
+for (i in 2:4) {
+  data <- get(paste0("RU92P4S0", i))
+  HEIS1392final <- merge(HEIS1392final, data, by = c("Address", "radif"), all.x = TRUE)
+}
+
+HEIS1392final <- HEIS1392final %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), as.numeric)) %>%
+  mutate(across(c(freeworkincome, miscellaneousincome, subsidincome), ~ replace(., is.na(.), 0))) %>%
+  mutate(otherincomes = freeworkincome + miscellaneousincome + subsidincome)
+
+# Main cleaning part
+HEIS1392final <- HEIS1392final %>%
+  mutate(Address = format(Address, scientific = FALSE),
+         monthwage = format(monthwage, scientific = FALSE))
+
+size_data <- HEIS1392final %>%
+  group_by(Address) %>%
+  summarise(size = n())
+HEIS1392final <- left_join(HEIS1392final, size_data, by = "Address")
+
+kid_data <- HEIS1392final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1392final <- left_join(HEIS1392final, kid_data, by = "Address")
+HEIS1392final <- HEIS1392final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1392final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1392final <- left_join(HEIS1392final, kid_data, by = "Address")
+HEIS1392final <- HEIS1392final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+kid_data <- HEIS1392final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 3, na.rm = TRUE))
+HEIS1392final <- left_join(HEIS1392final, kid_data, by = "Address")
+HEIS1392final <- HEIS1392final %>%
+  mutate(kids6to12 = ifelse((kid > 0 & (Rel2Head == 2 | Rel2Head == 1)), kid, NA)) %>%
+  select(-kid)
+
+kid_data <- HEIS1392final %>%
+  group_by(Address) %>%
+  summarise(kid = sum(age < 12 & age >= 6 & Rel2Head == 5, na.rm = TRUE))
+HEIS1392final <- left_join(HEIS1392final, kid_data, by = "Address")
+HEIS1392final <- HEIS1392final %>%
+  mutate(kidsu6 = ifelse((kid > 0 & (Rel2Head == 3 | Rel2Head == 4)), kid, kidsu6)) %>%
+  select(-kid)
+
+HEIS1392final <- HEIS1392final %>%
+  mutate(across(c(kidsu6, kids6to12), ~ replace(., is.na(.), 0))) %>%
+  mutate(lfp = ifelse(lfp != 1, 0, lfp),
+         student = ifelse(student == 2, 0, student))
+
+# Education cleaning
+HEIS1392final <- HEIS1392final %>%
+  rename(Education = education) %>%
+  mutate(
+    Primary = ifelse(Educ_years < 6, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Middleschool = ifelse(Educ_years < 9 & Educ_years > 5, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Highschool = ifelse(Educ_years < 12 & Educ_years > 8, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Diploma = ifelse(Educ_years == 12, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Associate = ifelse(Educ_years < 15 & Educ_years > 12, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Bachelor = ifelse(Educ_years < 17 & Educ_years > 14, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Master = ifelse(Educ_years < 19 & Educ_years > 16, 1, ifelse(is.na(Educ_years), NA, 0)),
+    Phd = ifelse(Educ_years > 18, 1, ifelse(is.na(Educ_years), NA, 0))
+  )
+
+
+# Cleaning married
+HEIS1392final <- HEIS1392final %>%
+  mutate(widow = ifelse(married == 2, 1, 0),
+         divoeced = ifelse(married == 3, 1, 0),
+         married = ifelse(married %in% c(2, 3, 4), 0, married),
+         female = ifelse(female == 1, 0, 1),
+         male = ifelse(female == 0, 1, 0))
+
+
+HEIS1392final <- HEIS1392final %>%
+  mutate(
+    monthwage = as.numeric(monthwage),
+    workhours = as.numeric(workhours),
+    workdays = as.numeric(workdays)
+  ) %>%
+  rename(urban = RU) %>%
+  mutate(
+    agesquerd = age^2,
+    lmonthwage = ifelse(monthwage > 0, log(monthwage), NA),
+    public = ifelse(public == 3, 0, 1),
+    hourlywage = monthwage / (workhours * workdays * 4.28),
+    lhwage = ifelse(hourlywage > 0, log(hourlywage), NA),
+    urban = ifelse(urban== "U", 1, ifelse(urban == "R", 0, NA)))
+
+
+objects <- ls()
+
+keep_objects <- c(
+                  "HEIS1401final","HEIS1400final", "HEIS1399final", "HEIS1398final",
+                  "HEIS1397final", "HEIS1396final" , "HEIS1395final", "HEIS1394final",
+                  "HEIS1393final", "HEIS1392final")
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+# Cleaning age
+
+
+
+
+
+
+# save all of them to large list
+# Create a list to store all datasets
+all_HEIS <- list()
+
+# Get the names of all objects in the environment
+object_names <- ls()
+
+# Loop through each object and add to the list if it is a data frame or tibble
+for (name in object_names) {
+  obj <- get(name)
+  if (is.data.frame(obj)) {
+    all_HEIS[[name]] <- obj
+  }
+}
+
+objects <- ls()
+
+keep_objects <- "all_HEIS"
+
+# Remove all objects except the one you want to keep
+objects_to_remove <- setdiff(objects, keep_objects)
+rm(list = objects_to_remove)
+
+save(all_HEIS, file = "/Users/ghost/Desktop/TeIAS/14022/Methods/final/Data/HEIS_data/all_HEIS.RData")
+```
