@@ -41,7 +41,7 @@ install.packages(c("dplyr", "data.table", "tidyr", "tidyverse", "stringr",
    git clone https://github.com/Ali-Iranpour/Iran_LFS_HEIS_Cleaning.git
    cd Iran_LFS_HEIS_Cleaning
    ```
-2. Open RStudio and load `clean_LFS_HEIS_1392_1401.Rmd`.
+2. Open RStudio and load `clean_LFS_HEIS.Rmd`.
 3. Run the script:
    - Execute individual chunks inside RStudio.
    - Click **"Knit"** to generate a report with cleaned output.
